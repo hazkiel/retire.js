@@ -21,7 +21,9 @@ function printResults(file, results, options) {
   var logger = log(options).info;
   if (retire.isVulnerable(results)) {
     logger = log(options).warn;
-    events.emit('vulnerable-dependency-found');
+    events.emit('vulnerable-dependency-found', {file: file, results: results});
+  } else {
+    events.emit('dependency-found', results);
   }
   if (results.length > 0) {
     logger(file);
@@ -31,13 +33,31 @@ function printResults(file, results, options) {
       var key = elm.component + ' ' + elm.version;
       if (printed[key]) return;
       if (retire.isVulnerable([elm])) {
-        vuln = ' has known vulnerabilities: ' + elm.vulnerabilities.join(' ');
+        vuln = ' has known vulnerabilities:' + printVulnerability(elm, options);
       }
       logger(' ' + String.fromCharCode(8627) + ' ' + key + vuln);
       printed[key] = true;
     });
   }
 }
+
+function printVulnerability(component, options) {
+  var string = '';
+  component.vulnerabilities.forEach(function(vulnerability){
+    string += options.outputformat === 'clean' ? '\n   ' : ' ';
+    if (vulnerability.severity) {
+      string += 'severity: ' + vulnerability.severity + '; ';
+    }
+    if (vulnerability.identifiers) {
+      string += _.map(vulnerability.identifiers, function(id, name) {
+        return name + ': ' + _.flatten([id]).join(' ');
+      }).join(', ') + '; ';
+    }
+    string += vulnerability.info.join(options.outputformat === 'clean' ? '\n' : ' ');
+  });
+  return string;
+}
+
 function shouldIgnore(file, ignores) {
   return _.detect(ignores, function(i) { return file.indexOf(i) === 0 || file.indexOf(path.resolve(i)) === 0; });
 }
@@ -66,13 +86,15 @@ function scanDependencies(dependencies, nodeRepo, options) {
     }
 		results = retire.scanNodeDependency(dependencies[i], nodeRepo);
 		if (retire.isVulnerable(results)) {
-			events.emit('vulnerable-dependency-found');
+			events.emit('vulnerable-dependency-found', {results: results});
 			var result = results[0]; //Only single scan here
-			log(options).warn(result.component + ' ' + result.version + ' has known vulnerabilities: ' + result.vulnerabilities.join(' '));
+			log(options).warn(result.component + ' ' + result.version + ' has known vulnerabilities: ' + printVulnerability(result));
 			if (result.parent) {
 				printParent(result, options);
 			}
-		}
+		} else {
+      events.emit('dependency-found', results);
+    }
   }
 }
 
